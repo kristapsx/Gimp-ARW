@@ -1,4 +1,4 @@
-# Sony ARW loader for GIMP 3.2 (macOS, without darktable)
+# Sony ARW loader for GIMP 3.2 (macOS)
 
 `./install.sh` sets up:
 - `~/.local/share/gimp-arw/venv` — Python 3.12 + rawpy (LibRaw), numpy, tifffile
