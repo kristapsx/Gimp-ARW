@@ -12,8 +12,14 @@ import gi
 gi.require_version('Gimp', '3.0')
 from gi.repository import Gimp, GObject, GLib, Gio
 
-HOME = os.path.expanduser('~/.local/share/gimp-arw')
-VENV_PY = os.path.join(HOME, 'venv', 'bin', 'python')
+WINDOWS = sys.platform == 'win32'
+
+if WINDOWS:
+    HOME = os.path.join(os.environ['LOCALAPPDATA'], 'gimp-arw')
+    VENV_PY = os.path.join(HOME, 'venv', 'Scripts', 'python.exe')
+else:
+    HOME = os.path.expanduser('~/.local/share/gimp-arw')
+    VENV_PY = os.path.join(HOME, 'venv', 'bin', 'python')
 CONVERTER = os.path.join(HOME, 'arw2tiff.py')
 OPTIONS = os.path.join(HOME, 'options')  # optional extra flags, e.g. "--linear"
 
@@ -23,8 +29,11 @@ THUMB_PROC = 'file-arw-rawpy-load-thumb'
 
 def run_converter(args):
     if not os.path.exists(VENV_PY):
-        raise RuntimeError(f'rawpy venv not found at {VENV_PY}; run install.sh')
-    proc = subprocess.run([VENV_PY, CONVERTER] + args, capture_output=True, text=True)
+        raise RuntimeError(f'rawpy venv not found at {VENV_PY}; run install.sh / install.ps1')
+    # GIMP runs us under pythonw on Windows; don't flash a console for python.exe
+    flags = subprocess.CREATE_NO_WINDOW if WINDOWS else 0
+    proc = subprocess.run([VENV_PY, CONVERTER] + args, capture_output=True,
+                          encoding='utf-8', errors='replace', creationflags=flags)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or f'arw2tiff exited with {proc.returncode}')
     return proc.stdout
@@ -39,19 +48,16 @@ def extra_options():
 
 
 def load_arw(procedure, run_mode, file, metadata, flags, config, data):
-    tmpdir = tempfile.mkdtemp(prefix='gimp-arw-')
-    tif = os.path.join(tmpdir, 'decoded.tif')
     try:
-        Gimp.progress_init(f'Decoding {file.get_basename()}')
-        run_converter([file.get_path(), '-o', tif] + extra_options())
-        image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(tif))
+        with tempfile.TemporaryDirectory(prefix='gimp-arw-', ignore_cleanup_errors=True) as tmpdir:
+            tif = os.path.join(tmpdir, 'decoded.tif')
+            Gimp.progress_init(f'Decoding {file.get_basename()}')
+            run_converter([file.get_path(), '-o', tif] + extra_options())
+            image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(tif))
     except Exception as e:
         return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR,
                                            GLib.Error(str(e))), flags
     finally:
-        if os.path.exists(tif):
-            os.remove(tif)
-        os.rmdir(tmpdir)
         Gimp.progress_end()
 
     return Gimp.ValueArray.new_from_values([
@@ -61,18 +67,14 @@ def load_arw(procedure, run_mode, file, metadata, flags, config, data):
 
 
 def thumbnail_arw(procedure, file, thumb_size, config, data):
-    tmpdir = tempfile.mkdtemp(prefix='gimp-arw-')
-    jpg = os.path.join(tmpdir, 'thumb.jpg')
     try:
-        w, h = map(int, run_converter([file.get_path(), '-o', jpg, '--thumb']).split())
-        image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(jpg))
+        with tempfile.TemporaryDirectory(prefix='gimp-arw-', ignore_cleanup_errors=True) as tmpdir:
+            jpg = os.path.join(tmpdir, 'thumb.jpg')
+            w, h = map(int, run_converter([file.get_path(), '-o', jpg, '--thumb']).split())
+            image = Gimp.file_load(Gimp.RunMode.NONINTERACTIVE, Gio.File.new_for_path(jpg))
     except Exception as e:
         return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR,
                                            GLib.Error(str(e)))
-    finally:
-        if os.path.exists(jpg):
-            os.remove(jpg)
-        os.rmdir(tmpdir)
 
     return Gimp.ValueArray.new_from_values([
         GObject.Value(Gimp.PDBStatusType, Gimp.PDBStatusType.SUCCESS),

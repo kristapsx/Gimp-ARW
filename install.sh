@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the rawpy-based ARW loader for GIMP 3.2 on macOS.
+# Install the rawpy-based ARW loader for GIMP 3.2 on macOS (Windows: install.ps1).
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
